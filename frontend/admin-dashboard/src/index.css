@@ -1,0 +1,87 @@
+:root {
+  --bg: #071a1d;
+  --card: #10282c;
+  --border: #203d41;
+  --text: #ffffff;
+  --muted: #82979a;
+  --red: #e53935;
+  --green: #54b889;
+  --amber: #f5a623;
+  --blue: #4da3ff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; background: var(--bg); }
+button, input, select { font: inherit; }
+h1, h2, h3 { margin: 0; }
+
+
+.incident-map-panel {
+  min-width: 0;
+  padding: 18px;
+  background: #0b2022;
+  border: 1px solid #203a3d;
+  border-radius: 14px;
+  color: #e7eef0;
+  margin: 20px 0;
+}
+
+.incident-map-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.incident-map-heading h3 {
+  margin: 0;
+  color: #e7eef0;
+  font-size: 18px;
+}
+
+.incident-map-heading p {
+  margin: 6px 0 0;
+  color: #9db3b7;
+  font-size: 13px;
+}
+
+.incident-map-count {
+  padding: 5px 9px;
+  border: 1px solid #29474b;
+  border-radius: 20px;
+  background: #122d30;
+  color: #dce8eb;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.incident-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 12px;
+  color: #b8cbd0;
+  font-size: 12px;
+}
+
+.incident-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.incident-map-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.incident-map-note {
+  margin: 10px 0 0;
+  color: #9db3b7;
+  font-size: 12px;
+}

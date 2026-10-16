@@ -1,0 +1,18 @@
+{
+  "model_name": "random_forest",
+  "features": [
+    "month",
+    "day_of_year",
+    "rainfall_previous_day",
+    "rainfall_3day",
+    "rainfall_7day"
+  ],
+  "target": "heavy_rain",
+  "threshold": 0.4,
+  "validation_f1": 0.3784,
+  "training_rows": 3982,
+  "validation_rows": 570,
+  "test_rows": 1138,
+  "rainfall_threshold_mm": 50,
+  "warning": "Experimental daily heavy-rain classifier; not a validated flood predictor."
+}
