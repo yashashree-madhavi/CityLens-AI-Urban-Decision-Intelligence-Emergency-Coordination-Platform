@@ -41,7 +41,11 @@ from app.services.bmc_weather_scheduler import (
 )
 
 
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as exc:
+    import logging
+    logging.getLogger(__name__).warning(f"Database table creation skipped on startup: {exc}")
 
 app = FastAPI(
     title="CityLens AI",
@@ -96,6 +100,8 @@ app.include_router(city_intelligence_router)
 @app.on_event("startup")
 async def start_background_schedulers():
     # Started here (not at import time) so an event loop exists.
+    if os.getenv("DISABLE_SCHEDULERS", "").lower() in ("true", "1", "yes") or os.getenv("TESTING", "").lower() in ("true", "1", "yes"):
+        return
     start_weather_scheduler()
     start_aqi_scheduler()
     start_bmc_weather_scheduler()

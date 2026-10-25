@@ -28,3 +28,11 @@ backend/.env
 backend/venv/
 __pycache__/
 *.pyc
+# Citizen app: Expo and local configuration
+frontend/citizen-App/node_modules/
+frontend/citizen-App/.expo/
+frontend/citizen-App/dist/
+frontend/citizen-App/web-build/
+frontend/citizen-App/.env
+frontend/citizen-App/.env.*
+!frontend/citizen-App/.env.example

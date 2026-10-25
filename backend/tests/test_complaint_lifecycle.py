@@ -12,6 +12,9 @@ from sqlalchemy.pool import StaticPool
 
 # Setup test environment before importing app
 os.environ["SECRET_KEY"] = os.environ.get("SECRET_KEY", "test-secret-key-citylens-audit-12345")
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["DISABLE_SCHEDULERS"] = "true"
+os.environ["TESTING"] = "true"
 
 from app.database.database import Base, get_db
 from app.main import app
