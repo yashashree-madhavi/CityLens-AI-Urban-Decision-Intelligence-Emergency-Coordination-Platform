@@ -1,4 +1,4 @@
-# CityLens AI – Integrated Project
+# CityLens AI 
 
 ```
 backend/                      FastAPI + PostgreSQL (port 8000)
