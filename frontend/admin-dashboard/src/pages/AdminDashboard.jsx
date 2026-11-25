@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import "./../App.css";
 import {
   getEmergencies,
   getIncidents,
@@ -15,6 +16,7 @@ import {
 import IncidentMap from "../components/IncidentMap";
 
 const EMERGENCY_STATUSES = ["active", "dispatched", "resolved"];
+
 const INCIDENT_STATUSES = [
   "reported",
   "verified",
@@ -24,6 +26,13 @@ const INCIDENT_STATUSES = [
 ];
 
 const REVIEW_STATUSES = ["unverified", "needs_review", "verifying"];
+
+const SERVICE_LABELS = {
+  hospital: "Hospital",
+  fire_station: "Fire Station",
+  police: "Police Station",
+  ambulance: "Ambulance Service",
+};
 
 const when = (value) => {
   if (!value) return "-";
@@ -71,6 +80,16 @@ const riskClass = (risk) =>
     CRITICAL: "b-red",
   }[String(risk || "").toUpperCase()] || "b-grey");
 
+const formatDistance = (meters) => {
+  const distance = Number(meters);
+
+  if (!Number.isFinite(distance) || distance < 0) return "Distance unavailable";
+
+  return distance >= 1000
+    ? `${(distance / 1000).toFixed(1)} km away`
+    : `${Math.round(distance)} m away`;
+};
+
 export default function AdminDashboard({ onLogout }) {
   const admin = getSavedAdmin();
 
@@ -79,6 +98,7 @@ export default function AdminDashboard({ onLogout }) {
   const [incidents, setIncidents] = useState([]);
   const [floods, setFloods] = useState([]);
   const [feed, setFeed] = useState([]);
+  const [emergencyServices, setEmergencyServices] = useState({});
   const [socket, setSocket] = useState("connecting");
   const [error, setError] = useState("");
   const [reviewReason, setReviewReason] = useState({});
@@ -149,13 +169,32 @@ export default function AdminDashboard({ onLogout }) {
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
+            const payload = message.data || message.emergency || {};
 
-            // The backend broadcasts messages using { type, data }.
+            // Retain nearby-service results for this dashboard session.
+            if (message.type === "new_emergency" && payload.id != null) {
+              setEmergencyServices((previous) => ({
+                ...previous,
+                [payload.id]: {
+                  services: Array.isArray(payload.nearby_services)
+                    ? payload.nearby_services
+                    : [],
+                  notifications: Array.isArray(
+                    payload.simulated_notifications
+                  )
+                    ? payload.simulated_notifications
+                    : [],
+                  source: payload.service_lookup_source || "unavailable",
+                  receivedAt: new Date().toISOString(),
+                },
+              }));
+            }
+
             setFeed((old) =>
               [
                 {
                   ...message,
-                  payload: message.data || message.emergency || {},
+                  payload,
                   at: new Date(),
                 },
                 ...old,
@@ -234,8 +273,6 @@ export default function AdminDashboard({ onLogout }) {
     }
   }
 
-
-
   async function reviewIncident(id, decision) {
     const reason = (reviewReason[id] || "").trim();
 
@@ -301,7 +338,6 @@ export default function AdminDashboard({ onLogout }) {
     (incident) => incident.status === "reported"
   ).length;
 
-  // Keep the existing detector's scale; do not assume a 0-1 score.
   const suspicious = incidents.filter(
     (incident) => incident.ai_classification === "SUSPICIOUS"
   ).length;
@@ -400,7 +436,6 @@ export default function AdminDashboard({ onLogout }) {
                 <span className="muted">HIGH FLOOD-RISK STATIONS</span>
                 <b>{highFlood}</b>
               </div>
-
             </div>
 
             <IncidentMap
@@ -413,7 +448,6 @@ export default function AdminDashboard({ onLogout }) {
             <h3 style={{ marginBottom: 12, marginTop: 24 }}>
               Live activity
             </h3>
-
 
             {feed.length === 0 ? (
               <div className="card empty">
@@ -451,8 +485,32 @@ export default function AdminDashboard({ onLogout }) {
                         </span>
                       )}{" "}
                       <span className="muted">
-                        {message.at.toLocaleTimeString("en-IN")}
+                        {message.at instanceof Date
+                          ? message.at.toLocaleTimeString("en-IN")
+                          : when(message.at)}
                       </span>
+
+                      {isNewEmergency &&
+                        Array.isArray(payload.nearby_services) &&
+                        payload.nearby_services.length > 0 && (
+                          <div className="nearby-services-list feed-services">
+                            {payload.nearby_services.map((service, i) => (
+                              <div
+                                className="nearby-service-item"
+                                key={`${service.service_type}-${service.name}-${i}`}
+                              >
+                                <strong>
+                                  {SERVICE_LABELS[service.service_type] ||
+                                    service.service_type}
+                                </strong>
+                                <div>{service.name}</div>
+                                <small>
+                                  {formatDistance(service.distance_meters)}
+                                </small>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                     </div>
                   );
                 })}
@@ -470,6 +528,7 @@ export default function AdminDashboard({ onLogout }) {
                   <th>TYPE</th>
                   <th>DESCRIPTION</th>
                   <th>LOCATION</th>
+                  <th>NEARBY SERVICES</th>
                   <th>TIME</th>
                   <th>STATUS</th>
                 </tr>
@@ -478,55 +537,110 @@ export default function AdminDashboard({ onLogout }) {
               <tbody>
                 {emergencies.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="empty">
+                    <td colSpan="7" className="empty">
                       No emergencies yet.
                     </td>
                   </tr>
                 )}
 
-                {emergencies.map((emergency) => (
-                  <tr key={emergency.id}>
-                    <td>#{emergency.id}</td>
-                    <td>{emergency.emergency_type}</td>
-                    <td>{emergency.description || "-"}</td>
+                {emergencies.map((emergency) => {
+                  const response = emergencyServices[emergency.id];
+                  const services = response?.services || [];
+                  const notifications = response?.notifications || [];
 
-                    <td>
-                      <a
-                        style={{ color: "var(--blue)" }}
-                        target="_blank"
-                        rel="noreferrer"
-                        href={`https://www.google.com/maps?q=${emergency.latitude},${emergency.longitude}`}
-                      >
-                        {Number(emergency.latitude).toFixed(4)},{" "}
-                        {Number(emergency.longitude).toFixed(4)}
-                      </a>
-                    </td>
+                  return (
+                    <tr key={emergency.id}>
+                      <td>#{emergency.id}</td>
+                      <td>{emergency.emergency_type}</td>
+                      <td>{emergency.description || "-"}</td>
 
-                    <td>{when(emergency.created_at)}</td>
+                      <td>
+                        <a
+                          style={{ color: "var(--blue)" }}
+                          target="_blank"
+                          rel="noreferrer"
+                          href={`https://www.google.com/maps?q=${emergency.latitude},${emergency.longitude}`}
+                        >
+                          {Number(emergency.latitude).toFixed(4)},{" "}
+                          {Number(emergency.longitude).toFixed(4)}
+                        </a>
+                      </td>
 
-                    <td>
-                      <span
-                        className={`badge ${statusClass(emergency.status)}`}
-                      >
-                        {emergency.status}
-                      </span>{" "}
+                      <td>
+                        {!response ? (
+                          <span className="muted">
+                            Awaiting service lookup
+                          </span>
+                        ) : services.length === 0 ? (
+                          <span className="muted">
+                            No nearby services found
+                          </span>
+                        ) : (
+                          <div className="nearby-services-list">
+                            {services.map((service, index) => {
+                              const notification = notifications.find(
+                                (item) =>
+                                  item.service_name === service.name &&
+                                  item.service_type === service.service_type
+                              );
 
-                      <select
-                        aria-label={`Emergency ${emergency.id} status`}
-                        value={emergency.status}
-                        onChange={(event) =>
-                          changeEmergency(emergency.id, event.target.value)
-                        }
-                      >
-                        {EMERGENCY_STATUSES.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
+                              return (
+                                <div
+                                  className="nearby-service-item"
+                                  key={`${service.service_type}-${service.name}-${index}`}
+                                >
+                                  <strong>
+                                    {SERVICE_LABELS[service.service_type] ||
+                                      service.service_type}
+                                  </strong>
+
+                                  <div>{service.name}</div>
+
+                                  <small>
+                                    {formatDistance(service.distance_meters)}
+                                  </small>
+
+                                  {notification && (
+                                    <div className="muted service-notification">
+                                      {notification.notification_status ===
+                                      "SIMULATED_ONLY"
+                                        ? "Notification prepared"
+                                        : notification.notification_status}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+
+                      <td>{when(emergency.created_at)}</td>
+
+                      <td>
+                        <span
+                          className={`badge ${statusClass(emergency.status)}`}
+                        >
+                          {emergency.status}
+                        </span>{" "}
+
+                        <select
+                          aria-label={`Emergency ${emergency.id} status`}
+                          value={emergency.status}
+                          onChange={(event) =>
+                            changeEmergency(emergency.id, event.target.value)
+                          }
+                        >
+                          {EMERGENCY_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -534,135 +648,153 @@ export default function AdminDashboard({ onLogout }) {
 
         {tab === "incidents" && (
           <>
-          <div className="section-heading page-section-heading">
-            <div>
-              <p className="eyebrow">CITIZEN INTAKE</p>
-              <h2>Citizen reports &amp; complaints</h2>
-              <p className="section-intro">AI triage labels and prioritises incoming reports. Use the review queue to record a verification decision; use status to track operational progress.</p>
+            <div className="section-heading page-section-heading">
+              <div>
+                <p className="eyebrow">CITIZEN INTAKE</p>
+                <h2>Citizen reports &amp; complaints</h2>
+                <p className="section-intro">
+                  AI triage labels and prioritises incoming reports. Use the
+                  review queue to record a verification decision; use status to
+                  track operational progress.
+                </p>
+              </div>
+              <div className="mini-stat">
+                <span>Total reports</span>
+                <strong>{incidents.length}</strong>
+              </div>
             </div>
-            <div className="mini-stat"><span>Total reports</span><strong>{incidents.length}</strong></div>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>TYPE</th>
-                  <th>DESCRIPTION</th>
-                  <th>LOCATION</th>
-                  <th>AI TRIAGE</th>
-                  <th>REVIEW DECISION</th>
-                  <th>TIME</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
 
-              <tbody>
-                {incidents.length === 0 && (
+            <div className="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan="8" className="empty">
-                      No reports yet.
-                    </td>
+                    <th>ID</th>
+                    <th>TYPE</th>
+                    <th>DESCRIPTION</th>
+                    <th>LOCATION</th>
+                    <th>AI TRIAGE</th>
+                    <th>REVIEW DECISION</th>
+                    <th>TIME</th>
+                    <th>STATUS</th>
                   </tr>
-                )}
+                </thead>
 
-                {incidents.map((incident) => (
-                  <tr key={incident.id}>
-                    <td>#{incident.id}</td>
-                    <td>{incident.incident_type}</td>
+                <tbody>
+                  {incidents.length === 0 && (
+                    <tr>
+                      <td colSpan="8" className="empty">
+                        No reports yet.
+                      </td>
+                    </tr>
+                  )}
 
-                    <td style={{ maxWidth: 260 }}>
-                      {incident.description || "-"}
-                    </td>
+                  {incidents.map((incident) => (
+                    <tr key={incident.id}>
+                      <td>#{incident.id}</td>
+                      <td>{incident.incident_type}</td>
 
-                    <td>
-                      <a
-                        style={{ color: "var(--blue)" }}
-                        target="_blank"
-                        rel="noreferrer"
-                        href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
-                      >
-                        {Number(incident.latitude).toFixed(4)},{" "}
-                        {Number(incident.longitude).toFixed(4)}
-                      </a>
-                    </td>
+                      <td style={{ maxWidth: 260 }}>
+                        {incident.description || "-"}
+                      </td>
 
-                    <td title={incident.ai_reason || ""}>
-                      <span
-                        className={`badge ${
-                          incident.ai_classification === "SUSPICIOUS"
-                            ? "b-red"
-                            : "b-grey"
-                        }`}
-                      >
-                        {incident.ai_classification || "-"}
-                      </span>
+                      <td>
+                        <a
+                          style={{ color: "var(--blue)" }}
+                          target="_blank"
+                          rel="noreferrer"
+                          href={`https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`}
+                        >
+                          {Number(incident.latitude).toFixed(4)},{" "}
+                          {Number(incident.longitude).toFixed(4)}
+                        </a>
+                      </td>
 
-                      <div className="muted">
-                        Score {incident.ai_suspicion_score ?? "-"}
-                      </div>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${statusClass(
-                          incident.verification_status
-                        )}`}
-                      >
-                        {incident.verification_status || "unverified"}
-                      </span>
-                      <div className="muted table-hint">
-                        {["unverified", "needs_review", "verifying"].includes(
-                          String(incident.verification_status || "").toLowerCase()
-                        )
-                          ? "Awaiting review"
-                          : "Decision recorded"}
-                      </div>
-                    </td>
+                      <td title={incident.ai_reason || ""}>
+                        <span
+                          className={`badge ${
+                            incident.ai_classification === "SUSPICIOUS"
+                              ? "b-red"
+                              : "b-grey"
+                          }`}
+                        >
+                          {incident.ai_classification || "-"}
+                        </span>
 
-                    <td>{when(incident.created_at)}</td>
+                        <div className="muted">
+                          Score {incident.ai_suspicion_score ?? "-"}
+                        </div>
+                      </td>
 
-                    <td>
-                      <span
-                        className={`badge ${statusClass(incident.status)}`}
-                      >
-                        {incident.status}
-                      </span>{" "}
+                      <td>
+                        <span
+                          className={`badge ${statusClass(
+                            incident.verification_status
+                          )}`}
+                        >
+                          {incident.verification_status || "unverified"}
+                        </span>
 
-                      <select
-                        aria-label={`Incident ${incident.id} status`}
-                        value={incident.status}
-                        disabled={
-                          String(incident.status || "").toLowerCase() === "resolved" ||
-                          String(incident.status || "").toLowerCase() === "rejected"
-                        }
-                        title={
-                          String(incident.status || "").toLowerCase() === "resolved" ||
-                          String(incident.status || "").toLowerCase() === "rejected"
-                            ? "This report has reached a terminal operational state."
-                            : "Update operational status"
-                        }
-                        onChange={(event) =>
-                          changeIncident(incident.id, event.target.value)
-                        }
-                      >
-                        {INCIDENT_STATUSES.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                      {(
-                        String(incident.status || "").toLowerCase() === "resolved" ||
-                        String(incident.status || "").toLowerCase() === "rejected"
-                      ) && (
-                        <div className="muted table-hint">Terminal status · locked</div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <div className="muted table-hint">
+                          {[
+                            "unverified",
+                            "needs_review",
+                            "verifying",
+                          ].includes(
+                            String(
+                              incident.verification_status || ""
+                            ).toLowerCase()
+                          )
+                            ? "Awaiting review"
+                            : "Decision recorded"}
+                        </div>
+                      </td>
+
+                      <td>{when(incident.created_at)}</td>
+
+                      <td>
+                        <span
+                          className={`badge ${statusClass(incident.status)}`}
+                        >
+                          {incident.status}
+                        </span>{" "}
+
+                        <select
+                          aria-label={`Incident ${incident.id} status`}
+                          value={incident.status}
+                          disabled={["resolved", "rejected"].includes(
+                            String(incident.status || "").toLowerCase()
+                          )}
+                          title={
+                            ["resolved", "rejected"].includes(
+                              String(incident.status || "").toLowerCase()
+                            )
+                              ? "This report has reached a terminal operational state."
+                              : "Update operational status"
+                          }
+                          onChange={(event) =>
+                            changeIncident(incident.id, event.target.value)
+                          }
+                        >
+                          {INCIDENT_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+
+                        {["resolved", "rejected"].includes(
+                          String(incident.status || "").toLowerCase()
+                        ) && (
+                          <div className="muted table-hint">
+                            Terminal status · locked
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 
@@ -673,11 +805,16 @@ export default function AdminDashboard({ onLogout }) {
                 <p className="eyebrow">AI-ASSISTED WORKFLOW</p>
                 <h2>Report review queue</h2>
               </div>
-              <span className="badge b-amber">{reviewQueue.length} awaiting review</span>
+              <span className="badge b-amber">
+                {reviewQueue.length} awaiting review
+              </span>
             </div>
 
             <p className="section-intro">
-              AI triage provides an initial classification and explanation. Review the evidence and reason before recording the final verification decision. Urgent emergency coordination remains a separate workflow.
+              AI triage provides an initial classification and explanation.
+              Review the evidence and reason before recording the final
+              verification decision. Urgent emergency coordination remains a
+              separate workflow.
             </p>
 
             {reviewQueue.length === 0 ? (
@@ -686,14 +823,15 @@ export default function AdminDashboard({ onLogout }) {
               </div>
             ) : (
               reviewQueue.map((incident) => (
-                <div
-                  className="card review-card"
-                  key={incident.id}
-                >
+                <div className="card review-card" key={incident.id}>
                   <div className="row review-card-heading">
                     <div>
-                      <p className="eyebrow">CITIZEN REPORT · #{incident.id}</p>
-                      <h3>{incident.incident_type || "Uncategorised report"}</h3>
+                      <p className="eyebrow">
+                        CITIZEN REPORT · #{incident.id}
+                      </p>
+                      <h3>
+                        {incident.incident_type || "Uncategorised report"}
+                      </h3>
                     </div>
 
                     <span
@@ -727,33 +865,42 @@ export default function AdminDashboard({ onLogout }) {
                   <div className="ai-assessment">
                     <div>
                       <p className="eyebrow">AI CLASSIFICATION</p>
-                      <span className={`badge ${
-                        incident.ai_classification === "SUSPICIOUS" ? "b-red" : "b-blue"
-                      }`}>
+                      <span
+                        className={`badge ${
+                          incident.ai_classification === "SUSPICIOUS"
+                            ? "b-red"
+                            : "b-blue"
+                        }`}
+                      >
                         {incident.ai_classification || "Not available"}
                       </span>
                     </div>
+
                     <div>
                       <p className="eyebrow">SUSPICION SCORE</p>
                       <strong>{incident.ai_suspicion_score ?? "—"}</strong>
                     </div>
+
                     <div>
                       <p className="eyebrow">EMERGENCY PRIORITY</p>
-                      <span className={`badge ${statusClass(incident.emergency_priority)}`}>
+                      <span
+                        className={`badge ${statusClass(
+                          incident.emergency_priority
+                        )}`}
+                      >
                         {incident.emergency_priority || "normal"}
                       </span>
                     </div>
                   </div>
 
                   {incident.ai_reason && (
-                    <p className="muted">
-                      AI note: {incident.ai_reason}
-                    </p>
+                    <p className="muted">AI note: {incident.ai_reason}</p>
                   )}
 
                   <p className="muted">
                     Verification note:{" "}
-                    {incident.verification_reason || "No review note recorded."}
+                    {incident.verification_reason ||
+                      "No review note recorded."}
                   </p>
 
                   {incident.evidence_image_path ? (
@@ -783,9 +930,7 @@ export default function AdminDashboard({ onLogout }) {
                       )}
                     </div>
                   ) : (
-                    <p className="muted">
-                      No evidence image uploaded yet.
-                    </p>
+                    <p className="muted">No evidence image uploaded yet.</p>
                   )}
 
                   <label
@@ -813,9 +958,7 @@ export default function AdminDashboard({ onLogout }) {
                     <button
                       type="button"
                       disabled={reviewBusy === incident.id}
-                      onClick={() =>
-                        reviewIncident(incident.id, "verified")
-                      }
+                      onClick={() => reviewIncident(incident.id, "verified")}
                       className="action-button action-success"
                     >
                       {reviewBusy === incident.id
@@ -826,9 +969,7 @@ export default function AdminDashboard({ onLogout }) {
                     <button
                       type="button"
                       disabled={reviewBusy === incident.id}
-                      onClick={() =>
-                        reviewIncident(incident.id, "rejected")
-                      }
+                      onClick={() => reviewIncident(incident.id, "rejected")}
                       className="action-button action-danger"
                     >
                       Reject report
@@ -853,48 +994,47 @@ export default function AdminDashboard({ onLogout }) {
 
         {tab === "flood" && (
           <>
-            {/* Live BMC flood-risk station cards */}
-                              {floods.length === 0 ? (
-                                <div className="card empty">
-                                  No flood data yet. The backend collects BMC rainfall data every
-                                  15 minutes.
-                                </div>
-                              ) : (
-                                floods.map((flood) => (
-                                  <div className="card" key={flood.bmc_location_id}>
-                                    <div className="row">
-                                      <b>{flood.station_name}</b>
+            {floods.length === 0 ? (
+              <div className="card empty">
+                No flood data yet. The backend collects BMC rainfall data every
+                15 minutes.
+              </div>
+            ) : (
+              floods.map((flood) => (
+                <div className="card" key={flood.bmc_location_id}>
+                  <div className="row">
+                    <b>{flood.station_name}</b>
 
-                                      <span>
-                                        <span className={`badge ${riskClass(flood.risk_level)}`}>
-                                          {flood.risk_level}
-                                        </span>{" "}
+                    <span>
+                      <span className={`badge ${riskClass(flood.risk_level)}`}>
+                        {flood.risk_level}
+                      </span>{" "}
 
-                                        <span className="muted">
-                                          score {flood.risk_score} • data{" "}
-                                          {String(flood.data_status).toLowerCase()}
-                                        </span>
-                                      </span>
-                                    </div>
+                      <span className="muted">
+                        score {flood.risk_score} • data{" "}
+                        {String(flood.data_status).toLowerCase()}
+                      </span>
+                    </span>
+                  </div>
 
-                                    {flood.reasons?.length > 0 && (
-                                      <ul
-                                        className="muted"
-                                        style={{ margin: "10px 0 0", paddingLeft: 18 }}
-                                      >
-                                        {flood.reasons.map((reason, index) => (
-                                          <li key={`${flood.bmc_location_id}-${index}`}>
-                                            {reason}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    )}
-                                  </div>
-                                ))
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
+                  {flood.reasons?.length > 0 && (
+                    <ul
+                      className="muted"
+                      style={{ margin: "10px 0 0", paddingLeft: 18 }}
+                    >
+                      {flood.reasons.map((reason, index) => (
+                        <li key={`${flood.bmc_location_id}-${index}`}>
+                          {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

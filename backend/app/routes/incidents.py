@@ -28,6 +28,9 @@ from app.ai.fake_report_detection import detect_suspicious_report
 from app.services.incident_verification_service import assess_report
 from app.models.emergency import Emergency
 from app.websocket.manager import manager
+from app.services.emergency_services import (
+    find_nearby_emergency_services,
+)
 
 router = APIRouter(
     prefix="/incidents",
@@ -129,32 +132,80 @@ async def create_incident(
         db.rollback()
         raise
 
+    
     # Broadcast only after the database commit succeeds.
     if emergency is not None:
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Find nearby services for this emergency.
+        try:
+            lookup = await find_nearby_emergency_services(
+                latitude=emergency.latitude,
+                longitude=emergency.longitude,
+                radius_meters=5000,
+            )
+
+            nearby_services = lookup["services"]
+            source = lookup["source"]
+            demo_only = lookup["demo_only"]
+
+        except Exception:
+            logger.exception(
+                "Nearby emergency-service lookup failed for emergency %s",
+                emergency.id,
+            )
+            nearby_services = []
+            source = "unavailable"
+            demo_only = False
+
+        # These are simulation records, NOT real dispatches.
+        simulated_notifications = [
+            {
+                "service_name": service["name"],
+                "service_type": service["service_type"],
+                "distance_meters": service["distance_meters"],
+                "notification_status": "SIMULATED_ONLY",
+                "message": (
+                    "Demo notification generated. "
+                    "No real emergency service was contacted."
+                ),
+            }
+            for service in nearby_services
+        ]
+
+        emergency_event = {
+            "id": emergency.id,
+            "user_id": emergency.user_id,
+            "emergency_type": emergency.emergency_type,
+            "description": emergency.description,
+            "latitude": emergency.latitude,
+            "longitude": emergency.longitude,
+            "status": emergency.status,
+            "incident_report_id": new_incident.id,
+            "emergency_priority": new_incident.emergency_priority,
+            "escalated_at": (
+                new_incident.escalated_at.isoformat()
+                if new_incident.escalated_at
+                else None
+            ),
+            "nearby_services": nearby_services,
+            "simulated_notifications": simulated_notifications,
+            "service_lookup_source": source,
+            "demo_only": demo_only,
+            "search_radius_meters": 5000,
+        }
+
         try:
             await manager.broadcast({
                 "type": "new_emergency",
-                "data": {
-                    "id": emergency.id,
-                    "user_id": emergency.user_id,
-                    "emergency_type": emergency.emergency_type,
-                    "description": emergency.description,
-                    "latitude": emergency.latitude,
-                    "longitude": emergency.longitude,
-                    "status": emergency.status,
-                    "incident_report_id": new_incident.id,
-                    "emergency_priority": new_incident.emergency_priority,
-                    "escalated_at": (
-                        new_incident.escalated_at.isoformat()
-                        if new_incident.escalated_at
-                        else None
-                    )
-                }
+                "data": emergency_event,
             })
         except Exception:
-            import logging
-            logging.getLogger(__name__).exception(
-                "Emergency was saved, but dashboard broadcast failed."
+            logger.exception(
+                "Emergency %s was saved, but dashboard broadcast failed.",
+                emergency.id,
             )
 
     return new_incident

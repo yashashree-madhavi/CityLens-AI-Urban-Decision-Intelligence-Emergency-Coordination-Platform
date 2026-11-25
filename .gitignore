@@ -36,3 +36,12 @@ frontend/citizen-App/web-build/
 frontend/citizen-App/.env
 frontend/citizen-App/.env.*
 !frontend/citizen-App/.env.example
+
+# Dependencies and generated files
+node_modules/
+node_modules_old/
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+.env
