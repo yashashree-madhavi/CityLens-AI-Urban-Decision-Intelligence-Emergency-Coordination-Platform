@@ -38,12 +38,8 @@
           "imageWidth": 76
         }
       ],
-      [
-        "react-native-maps",
-        {
-          "androidGoogleMapsApiKey": "AIzaSyBuptQATlcZkwZW2AwytLT9rdV7GwPLNDw"
-        }
-      ]
+      "react-native-maps"
+      
     ],
 
     "experiments": {
